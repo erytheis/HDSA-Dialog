@@ -41,7 +41,7 @@ from pytorch_pretrained_bert.modeling import BertForSequenceClassification, Bert
 from pytorch_pretrained_bert.tokenization import BertTokenizer
 from pytorch_pretrained_bert.optimization import BertAdam, WarmupLinearSchedule
 from pprint import pprint
-from tools import obtain_TP_TN_FN_FP
+from tools import obtain_TP_TN_FN_FP, convert_act_ids_to_names
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +143,7 @@ class QqpProcessor(DataProcessor):
             text_b = line[4]
             label = json.loads(line[5])
             examples.append(InputExample(file=file_name, turn=turn_num, guid=guid, \
-                                          text_m=text_m, text_a=text_a, text_b=text_b, label=label))
+                                         text_m=text_m, text_a=text_a, text_b=text_b, label=label))
         return examples
 
 
@@ -329,11 +329,11 @@ def main():
                         help="Which test set is used for evaluation",
                         type=str)
     parser.add_argument("--train_batch_size",
-                    default=18,
-                    type=int,
-                    help="Total batch size for training.")
-    parser.add_argument("--eval_batch_size",
                         default=18,
+                        type=int,
+                        help="Total batch size for training.")
+    parser.add_argument("--eval_batch_size",
+                        default=1,
                         type=int,
                         help="Total batch size for eval.")
     ## Other parameters
@@ -341,8 +341,8 @@ def main():
                         default="bert-base-uncased",
                         type=str,
                         help="Bert pre-trained model selected in the list: bert-base-uncased, "
-                        "bert-large-uncased, bert-base-cased, bert-large-cased, bert-base-multilingual-uncased, "
-                        "bert-base-multilingual-cased, bert-base-chinese.")
+                             "bert-large-uncased, bert-base-cased, bert-large-cased, bert-base-multilingual-uncased, "
+                             "bert-base-multilingual-cased, bert-base-chinese.")
     parser.add_argument("--task_name",
                         default="QQP",
                         type=str,
@@ -405,6 +405,10 @@ def main():
     pprint(vars(args))
     sys.stdout.flush()
 
+    args.do_eval = True
+    args.load_dir = "checkpoints/predictor/save_step_15120"
+    args.no_cuda = True
+
     if args.server_ip and args.server_port:
         # Distant debugging - see https://code.visualstudio.com/docs/python/debugging#_attach-to-a-local-script
         import ptvsd
@@ -430,16 +434,16 @@ def main():
         # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
         torch.distributed.init_process_group(backend='nccl')
 
-    logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
-                        datefmt = '%m/%d/%Y %H:%M:%S',
-                        level = logging.INFO if args.local_rank in [-1, 0] else logging.WARN)
+    logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
+                        datefmt='%m/%d/%Y %H:%M:%S',
+                        level=logging.INFO if args.local_rank in [-1, 0] else logging.WARN)
 
     logger.info("device: {} n_gpu: {}, distributed training: {}, 16-bits training: {}".format(
         device, n_gpu, bool(args.local_rank != -1), args.fp16))
 
     if args.gradient_accumulation_steps < 1:
         raise ValueError("Invalid gradient_accumulation_steps parameter: {}, should be >= 1".format(
-                            args.gradient_accumulation_steps))
+            args.gradient_accumulation_steps))
 
     args.train_batch_size = args.train_batch_size // args.gradient_accumulation_steps
 
@@ -480,14 +484,15 @@ def main():
         if args.local_rank != -1:
             num_train_optimization_steps = num_train_optimization_steps // torch.distributed.get_world_size()
 
-    cache_dir = args.cache_dir if args.cache_dir else os.path.join(str(PYTORCH_PRETRAINED_BERT_CACHE), 'distributed_{}'.format(args.local_rank))
+    cache_dir = args.cache_dir if args.cache_dir else os.path.join(str(PYTORCH_PRETRAINED_BERT_CACHE),
+                                                                   'distributed_{}'.format(args.local_rank))
     if args.load_dir:
         load_dir = args.load_dir
     else:
         load_dir = args.bert_model
 
     model = BertForSequenceClassification.from_pretrained(load_dir, cache_dir=cache_dir, num_labels=num_labels)
-    
+
     if args.fp16:
         model.half()
     model.to(device)
@@ -495,7 +500,8 @@ def main():
         try:
             from apex.parallel import DistributedDataParallel as DDP
         except ImportError:
-            raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training.")
+            raise ImportError(
+                "Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training.")
 
         model = DDP(model)
     elif n_gpu > 1:
@@ -508,13 +514,14 @@ def main():
         optimizer_grouped_parameters = [
             {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
             {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
-            ]
+        ]
         if args.fp16:
             try:
                 from apex.optimizers import FP16_Optimizer
                 from apex.optimizers import FusedAdam
             except ImportError:
-                raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training.")
+                raise ImportError(
+                    "Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training.")
 
             optimizer = FusedAdam(optimizer_grouped_parameters,
                                   lr=args.learning_rate,
@@ -567,7 +574,7 @@ def main():
                 logits = model(input_ids, segment_ids, input_mask, labels=None)
 
                 loss_fct = BCEWithLogitsLoss()
-                
+
                 loss = loss_fct(logits.view(-1, 1), label_ids.view(-1, 1))
 
                 if n_gpu > 1:
@@ -598,13 +605,13 @@ def main():
 
                 if (step + 1) % args.period == 0:
                     # Save a trained model, configuration and tokenizer
-                    model_to_save = model.module if hasattr(model, 'module') else model 
+                    model_to_save = model.module if hasattr(model, 'module') else model
 
                     # If we save using the predefined names, we can load using `from_pretrained`
                     model.eval()
                     torch.set_grad_enabled(False)  # turn off gradient tracking
                     F1 = evaluate(args, model, device, processor, label_list, num_labels, tokenizer, output_mode)
-                    
+
                     if F1 > best_F1:
                         output_dir = os.path.join(args.output_dir, 'save_step_{}'.format(global_step))
                         if not os.path.exists(output_dir):
@@ -630,13 +637,13 @@ def main():
             output_dir = None
         save_dir = output_dir if output_dir is not None else args.load_dir
         load_step = args.load_step
-        
+
         if args.load_dir is not None:
             load_step = int(os.path.split(args.load_dir)[1].replace('save_step_', ''))
             print("load_step = {}".format(load_step))
-        
+
         F1 = evaluate(args, model, device, processor, label_list, num_labels, tokenizer, output_mode)
-        
+
         with open("test_result.txt", 'a') as f:
             print("load step: {} F1: {}".format(str(load_step), str(F1)), file=f)
 
@@ -658,7 +665,7 @@ def evaluate(args, model, device, processor, label_list, num_labels, tokenizer, 
         # Run prediction for full data
         eval_sampler = SequentialSampler(eval_data)
         eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size)
-        
+
         idx = 0
         TP, TN, FN, FP = 0, 0, 0, 0
         output = {}
@@ -673,6 +680,8 @@ def evaluate(args, model, device, processor, label_list, num_labels, tokenizer, 
                 logits = torch.sigmoid(logits)
             preds = (logits > 0.4).float()
             preds_numpy = preds.cpu().long().data.numpy()
+            print("INPUT:", " ".join(tokenizer.convert_ids_to_tokens(input_ids.cpu().detach().numpy().flatten())))
+            print("PREDICTION:", convert_act_ids_to_names(preds_numpy.T))
             for i in range(idx, idx + batch_size):
                 if eval_features[i].file not in output:
                     output[eval_features[i].file] = {}
@@ -688,6 +697,7 @@ def evaluate(args, model, device, processor, label_list, num_labels, tokenizer, 
         F1 = 2 * precision * recall / (precision + recall + 0.001)
         logger.info("precision is {} recall is {} F1 is {}".format(precision, recall, F1))
         return F1
+
 
 if __name__ == "__main__":
     main()

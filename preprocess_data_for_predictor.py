@@ -61,8 +61,4 @@ def get_batch(data_dir, option, max_seq_length):
             
 
     fw.close()
-if __name__ == "__main__":
-    get_batch('data/', 'train', 60)
-    get_batch('data/', 'dev', 60)
-    get_batch('data/', 'test', 60)
 

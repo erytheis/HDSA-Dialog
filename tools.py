@@ -1,3 +1,6 @@
+import argparse
+from typing import List, Any
+
 import transformer.Constants as Constants
 import json
 import math
@@ -6,6 +9,24 @@ from collections import Counter
 from nltk.util import ngrams
 import numpy
 import torch
+import itertools
+
+def convert_act_names_to_ids(acts):
+    hierarchical_act_vecs = [0 for _ in range(Constants.act_len)]
+    combined_dictionary = Constants.domains + Constants.functions + Constants.arguments
+    keys = acts.split('-')
+    for key in keys:
+        hierarchical_act_vecs[combined_dictionary.index(key)] = 1
+    return hierarchical_act_vecs
+
+def convert_act_ids_to_names(act_vecs):
+    acts = []
+    combined_list = Constants.domains + Constants.functions + Constants.arguments
+    for key, new_act in enumerate(act_vecs):
+        if new_act == 1:
+            acts.append(combined_list[key])
+    return acts
+
 
 def get_n_params(*params_list):
     pp=0
@@ -400,6 +421,9 @@ def nondetokenize(d_p, d_r):
             d_p[file_name][turn_id] = " ".join(words)
     success_rate = success / need_replace
     return success_rate
+
+
+
 """
 class Templator(object):
     with open('data/placeholder.json') as f:
@@ -463,3 +487,32 @@ class Templator(object):
                         string += Templator.templates[k][v] + " . "
         return string
 """
+
+
+def parse_opt():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--option', type=str, default="train",
+                        help="whether to train or test the model", choices=['train', 'test', 'postprocess'])
+    parser.add_argument('--emb_dim', type=int, default=128, help="the embedding dimension")
+    parser.add_argument('--dropout', type=float, default=0.2, help="the embedding dimension")
+    parser.add_argument('--resume', action='store_true', default=False, help="whether to resume previous run")
+    parser.add_argument('--batch_size', type=int, default=256, help="the embedding dimension")
+    parser.add_argument('--model', type=str, default="BERT_dim128_w_domain", help="the embedding dimension")
+    parser.add_argument('--data_dir', type=str, default='data', help="the embedding dimension")
+    parser.add_argument('--beam_size', type=int, default=2, help="the embedding dimension")
+    parser.add_argument('--max_seq_length', type=int, default=100, help="the embedding dimension")
+    parser.add_argument('--layer_num', type=int, default=3, help="the embedding dimension")
+    parser.add_argument('--evaluate_every', type=int, default=5, help="the embedding dimension")
+    parser.add_argument('--one_hot', default=False, action="store_true", help="whether to use one hot")
+    parser.add_argument('--th', type=float, default=0.4, help="the embedding dimension")
+    parser.add_argument('--head', type=int, default=4, help="the embedding dimension")
+    parser.add_argument("--output_dir", default="checkpoints/generator/", type=str,
+                        help="The output directory where the model predictions and checkpoints will be written.")
+    parser.add_argument("--learning_rate", default=1e-3, type=float, help="The initial learning rate for Adam.")
+    parser.add_argument("--outfile", default='/tmp/results.txt', type=str, help="The initial learning rate for Adam.")
+    parser.add_argument("--output_file", default='/tmp/results.txt.pred',
+                        type=str, help="The initial learning rate for Adam.")
+    parser.add_argument("--non_delex", default=False, action="store_true", help="The initial learning rate for Adam.")
+    parser.add_argument("--field", default=False, action="store_true", help="The initial learning rate for Adam.")
+    args = parser.parse_args()
+    return args

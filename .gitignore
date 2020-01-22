@@ -1,3 +1,9 @@
 *history
 *cache*
 *pyc
+data/
+preprocessing/data.json
+preprocessing/dialogue_acts.json
+preprocessing/valListFile.json
+preprocessing/testListFile.json
+checkpoints/

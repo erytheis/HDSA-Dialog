@@ -1,20 +1,9 @@
-import json
-import torch
-import random
-import numpy
 import logging
 import os
-import sys
-import argparse
 import time
-from torch.autograd import Variable
-from transformer.Transformer import Transformer, TransformerDecoder, TableSemanticDecoder
+from transformer.Transformer import TransformerDecoder, TableSemanticDecoder
 from torch.optim.lr_scheduler import MultiStepLR
-import transformer.Constants as Constants
-from itertools import chain
 from MultiWOZ import get_batch
-from transformer.LSTM import LSTMDecoder
-from transformer.Semantic_LSTM import SCLSTM
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 from tools import *
 from collections import OrderedDict
@@ -25,39 +14,14 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
-def parse_opt():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--option', type=str, default="train",
-                        help="whether to train or test the model", choices=['train', 'test', 'postprocess'])
-    parser.add_argument('--emb_dim', type=int, default=128, help="the embedding dimension")
-    parser.add_argument('--dropout', type=float, default=0.2, help="the embedding dimension")
-    parser.add_argument('--resume', action='store_true', default=False, help="whether to resume previous run")
-    parser.add_argument('--batch_size', type=int, default=256, help="the embedding dimension")
-    parser.add_argument('--model', type=str, default="CNN", help="the embedding dimension")
-    parser.add_argument('--data_dir', type=str, default='data', help="the embedding dimension")
-    parser.add_argument('--beam_size', type=int, default=2, help="the embedding dimension")
-    parser.add_argument('--max_seq_length', type=int, default=100, help="the embedding dimension")
-    parser.add_argument('--layer_num', type=int, default=3, help="the embedding dimension")
-    parser.add_argument('--evaluate_every', type=int, default=5, help="the embedding dimension")
-    parser.add_argument('--one_hot', default=False, action="store_true", help="whether to use one hot")
-    parser.add_argument('--th', type=float, default=0.4, help="the embedding dimension")
-    parser.add_argument('--head', type=int, default=4, help="the embedding dimension")
-    parser.add_argument("--output_dir", default="checkpoints/generator/", type=str,
-                        help="The output directory where the model predictions and checkpoints will be written.")
-    parser.add_argument("--learning_rate", default=1e-3, type=float, help="The initial learning rate for Adam.")
-    parser.add_argument("--outfile", default='/tmp/results.txt', type=str, help="The initial learning rate for Adam.")
-    parser.add_argument("--output_file", default='/tmp/results.txt.pred',
-                        type=str, help="The initial learning rate for Adam.")
-    parser.add_argument("--non_delex", default=False, action="store_true", help="The initial learning rate for Adam.")
-    parser.add_argument("--field", default=False, action="store_true", help="The initial learning rate for Adam.")
-    args = parser.parse_args()
-    return args
-
-
 args = parse_opt()
-device = torch.device('cuda')
+device = torch.device('cpu')
 args.outfile = "/tmp/results.txt.pred.{}".format(args.model)
+args.option = "test"
+args.model = "BERT_dim128_w_domain"
+args.batch_size = 1
+args.max_seq_length = 50
+args.field = True
 
 with open("{}/vocab.json".format(args.data_dir), 'r') as f:
     vocabulary = json.load(f)
@@ -182,7 +146,7 @@ if args.option == 'train':
                 best_BLEU = BLEU
             decoder.train()
 elif args.option == "test":
-    decoder.load_state_dict(torch.load(checkpoint_file))
+    decoder.load_state_dict(torch.load(checkpoint_file, map_location=torch.device('cpu')))
     logger.info("Loading model from {}".format(checkpoint_file))
     decoder.eval()
     logger.info("Start Testing with {} batches".format(len(eval_dataloader)))
@@ -207,6 +171,9 @@ elif args.option == "test":
             else:
                 model_turns[file_name].append(pred)
 
+            print("INPUT:", tokenizer.convert_id_to_tokens(input_ids.cpu().detach().numpy().T))
+            print("ACTS:", convert_act_ids_to_names(pred_hierachical_act_vecs.cpu().detach().flatten().tolist()))
+            print("PREDS:", tokenizer.convert_id_to_tokens(hyp))
         logger.info("finished {}/{} used {} sec/per-sent".format(batch_step, len(eval_dataloader),
                                                                  (time.time() - start_time) / args.batch_size))
         start_time = time.time()
